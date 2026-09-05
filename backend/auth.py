@@ -55,7 +55,7 @@ def register(
         r = conn.execute(
             sa.text(
                 "INSERT INTO users(email, password_hash, password_salt, display_name, created_at) "
-                "VALUES (:e, :h, :s, :n, :c)"
+                "VALUES (:e, :h, :s, :n, :c) RETURNING user_id"
             ),
             {
                 "e": email,
@@ -65,8 +65,8 @@ def register(
                 "c": _now().isoformat(),
             },
         )
+        user_id = int(r.scalar_one())
         conn.commit()
-        user_id = int(r.lastrowid)
     return {"user_id": user_id, "email": email, "display_name": display_name or email.split("@")[0]}
 
 

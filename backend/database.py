@@ -34,7 +34,27 @@ DB_PATH = Path(
 )
 
 
+def _use_postgres() -> bool:
+    """Vercel 등 웹 배포에서는 DATABASE_URL로 Postgres를 쓴다.
+    api.py는 db_path를 항상(기본값 DEFAULT_DB로) 구체적인 Path로 넘기므로
+    "db_path is None"으로는 구분할 수 없다 — DATABASE_URL 유무만으로 분기한다.
+    데스크톱 앱과 테스트는 DATABASE_URL을 설정하지 않으므로 항상 SQLite를 그대로 쓴다."""
+    return bool(os.environ.get("DATABASE_URL"))
+
+
+def _postgres_url() -> str:
+    url = os.environ["DATABASE_URL"]
+    # Neon/Vercel Postgres가 주는 postgres:// 또는 postgresql:// 를 psycopg 드라이버로 명시한다.
+    if url.startswith("postgres://"):
+        url = "postgresql+psycopg://" + url[len("postgres://"):]
+    elif url.startswith("postgresql://") and "+psycopg" not in url:
+        url = "postgresql+psycopg://" + url[len("postgresql://"):]
+    return url
+
+
 def _engine(db_path: Path | None = None) -> sa.engine.Engine:
+    if _use_postgres():
+        return sa.create_engine(_postgres_url())
     path = (db_path or DB_PATH).expanduser().resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
     url = sa.engine.URL.create("sqlite", database=str(path))
@@ -57,19 +77,21 @@ def _ensure_schema(db_path: Path | None = None) -> Path:
 
 def init_db(db_path: Path | None = None, schema_sql: str | None = None) -> None:
     """데이터베이스 파일과 테이블을 생성하고 가벼운 컬럼 마이그레이션을 적용한다."""
+    postgres = _use_postgres()
     eng = _engine(db_path)
-    schema = schema_sql or _default_schema_sql()
+    schema = schema_sql or (_default_schema_sql_postgres() if postgres else _default_schema_sql())
     with eng.connect() as conn:
-        conn.execute(sa.text("PRAGMA foreign_keys = ON"))
+        if not postgres:
+            conn.execute(sa.text("PRAGMA foreign_keys = ON"))
         for stmt in schema.split(";"):
             stmt = stmt.strip()
             if stmt:
                 conn.execute(sa.text(stmt))
-        _migrate(conn)
+        _migrate(conn, postgres)
         conn.commit()
 
 
-def _migrate(conn: sa.Connection) -> None:
+def _migrate(conn: sa.Connection, postgres: bool = False) -> None:
     """기존 DB 에 새로 추가된 컬럼을 채운다(ADD COLUMN IF NOT EXISTS 대용)."""
     additions = {
         "pets": [("user_id", "INTEGER")],
@@ -85,10 +107,22 @@ def _migrate(conn: sa.Connection) -> None:
     }
     for table, cols in additions.items():
         try:
-            existing = {
-                row[1]
-                for row in conn.execute(sa.text(f"PRAGMA table_info({table})"))
-            }
+            if postgres:
+                existing = {
+                    row[0]
+                    for row in conn.execute(
+                        sa.text(
+                            "SELECT column_name FROM information_schema.columns "
+                            "WHERE table_name=:t"
+                        ),
+                        {"t": table},
+                    )
+                }
+            else:
+                existing = {
+                    row[1]
+                    for row in conn.execute(sa.text(f"PRAGMA table_info({table})"))
+                }
         except Exception:
             continue
         if not existing:
@@ -190,6 +224,99 @@ CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id);
 """
 
 
+def _default_schema_sql_postgres() -> str:
+    """Vercel Postgres(Neon) 배포용. SQLite 버전과 테이블/제약은 동일하고,
+    자동증가 기본키만 GENERATED ALWAYS AS IDENTITY로 바꾼다(PRAGMA는 불필요)."""
+    return """
+CREATE TABLE IF NOT EXISTS users (
+    user_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    password_salt TEXT NOT NULL,
+    display_name TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sessions (
+    token TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(user_id),
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS pets (
+    pet_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id INTEGER REFERENCES users(user_id),
+    name TEXT NOT NULL,
+    species TEXT NOT NULL CHECK (species IN ('dog','cat')),
+    birth_date TEXT,
+    weight_kg REAL NOT NULL CHECK (weight_kg > 0),
+    life_stage TEXT NOT NULL,
+    breed TEXT,
+    neutered INTEGER NOT NULL DEFAULT 0 CHECK (neutered IN (0,1))
+);
+CREATE TABLE IF NOT EXISTS products (
+    product_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    category TEXT NOT NULL CHECK (category IN ('주식','간식','영양제')),
+    serving_basis_g REAL NOT NULL CHECK (serving_basis_g > 0),
+    monthly_price_krw INTEGER CHECK (monthly_price_krw >= 0),
+    source TEXT NOT NULL,
+    label_complete INTEGER NOT NULL DEFAULT 1 CHECK (label_complete IN (0,1))
+);
+CREATE TABLE IF NOT EXISTS product_nutrients (
+    product_id TEXT NOT NULL REFERENCES products(product_id),
+    nutrient TEXT NOT NULL,
+    amount_mg REAL NOT NULL CHECK (amount_mg >= 0),
+    label_complete INTEGER NOT NULL CHECK (label_complete IN (0,1)),
+    PRIMARY KEY (product_id, nutrient)
+);
+CREATE TABLE IF NOT EXISTS feeding_plans (
+    pet_id INTEGER NOT NULL REFERENCES pets(pet_id),
+    product_id TEXT NOT NULL REFERENCES products(product_id),
+    daily_amount_g REAL NOT NULL CHECK (daily_amount_g >= 0),
+    active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+    PRIMARY KEY (pet_id, product_id)
+);
+CREATE TABLE IF NOT EXISTS nutrient_standards (
+    species TEXT NOT NULL,
+    life_stage TEXT NOT NULL,
+    nutrient TEXT NOT NULL,
+    demo_min_mg REAL NOT NULL CHECK (demo_min_mg >= 0),
+    demo_max_mg REAL NOT NULL CHECK (demo_max_mg >= demo_min_mg),
+    source TEXT NOT NULL,
+    verified INTEGER NOT NULL DEFAULT 0 CHECK (verified IN (0,1)),
+    PRIMARY KEY (species, life_stage, nutrient)
+);
+CREATE TABLE IF NOT EXISTS favorites (
+    user_id INTEGER NOT NULL REFERENCES users(user_id),
+    product_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, product_id)
+);
+CREATE TABLE IF NOT EXISTS reviews (
+    review_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(user_id),
+    product_id TEXT NOT NULL,
+    author TEXT,
+    rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+    body TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS orders (
+    order_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(user_id),
+    items_json TEXT NOT NULL,
+    total_krw INTEGER NOT NULL,
+    address TEXT,
+    status TEXT NOT NULL DEFAULT 'paid',
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_product_nutrients_nutrient ON product_nutrients(nutrient);
+CREATE INDEX IF NOT EXISTS idx_feeding_plans_pet_active ON feeding_plans(pet_id, active);
+CREATE INDEX IF NOT EXISTS idx_reviews_product ON reviews(product_id);
+CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id);
+"""
+
+
 # ---------------------------------------------------------------------------
 # Pet (프로필) CRUD
 # ---------------------------------------------------------------------------
@@ -218,7 +345,8 @@ def create_pet(
         r = conn.execute(
             sa.text(
                 "INSERT INTO pets(user_id, name, species, birth_date, weight_kg, life_stage, breed, neutered) "
-                "VALUES (:user_id, :name, :species, :birth_date, :weight_kg, :life_stage, :breed, :neutered)"
+                "VALUES (:user_id, :name, :species, :birth_date, :weight_kg, :life_stage, :breed, :neutered) "
+                "RETURNING pet_id"
             ),
             {
                 "user_id": user_id,
@@ -231,8 +359,9 @@ def create_pet(
                 "neutered": 1 if neutered else 0,
             },
         )
+        pet_id = int(r.scalar_one())
         conn.commit()
-        return int(r.lastrowid)
+        return pet_id
 
 
 def get_pet(

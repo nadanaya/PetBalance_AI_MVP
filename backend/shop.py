@@ -7,6 +7,7 @@ create_order 앞단에 결제 승인 단계만 끼우면 된다.
 from __future__ import annotations
 
 import json
+import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -96,12 +97,13 @@ def add_review(
         r = conn.execute(
             sa.text(
                 "INSERT INTO reviews(user_id, product_id, author, rating, body, created_at) "
-                "VALUES (:u,:p,:a,:r,:b,:c)"
+                "VALUES (:u,:p,:a,:r,:b,:c) RETURNING review_id"
             ),
             {"u": user_id, "p": product_id, "a": author, "r": rating, "b": body, "c": _now()},
         )
+        review_id = int(r.scalar_one())
         conn.commit()
-        return int(r.lastrowid)
+        return review_id
 
 
 def ratings_for(product_ids: list[str], db_path: Path | None = None) -> dict[str, dict]:
@@ -132,7 +134,7 @@ def create_order(
         r = conn.execute(
             sa.text(
                 "INSERT INTO orders(user_id, items_json, total_krw, address, status, created_at) "
-                "VALUES (:u,:i,:t,:a,'paid',:c)"
+                "VALUES (:u,:i,:t,:a,'paid',:c) RETURNING order_id"
             ),
             {
                 "u": user_id,
@@ -142,8 +144,8 @@ def create_order(
                 "c": _now(),
             },
         )
+        oid = int(r.scalar_one())
         conn.commit()
-        oid = int(r.lastrowid)
     return {"order_id": oid, "status": "paid", "total_krw": int(total_krw)}
 
 
@@ -191,17 +193,38 @@ _SEED = [
 ]
 
 
+_SEED_USER_EMAIL = "seed@petbalance.internal"
+
+
 def seed_reviews_if_empty(db_path: Path | None = None) -> None:
     with _session(db_path) as conn:
         n = conn.execute(sa.text("SELECT COUNT(*) c FROM reviews")).scalar()
         if n and n > 0:
             return
+        # 데모 리뷰의 작성자는 실제 계정이 없다. user_id=0을 그대로 박아 넣으면 FK를
+        # 엄격히 검사하는 Postgres에서 깨지므로(로그인 불가능한) 시드 전용 사용자를 만들어 참조한다.
+        seed_user_id = conn.execute(
+            sa.text("SELECT user_id FROM users WHERE email=:e"), {"e": _SEED_USER_EMAIL}
+        ).scalar()
+        if seed_user_id is None:
+            seed_user_id = conn.execute(
+                sa.text(
+                    "INSERT INTO users(email, password_hash, password_salt, display_name, created_at) "
+                    "VALUES (:e, :h, :s, '데모', :c) RETURNING user_id"
+                ),
+                {
+                    "e": _SEED_USER_EMAIL,
+                    "h": secrets.token_hex(32),  # 로그인 불가한 무작위 값(실제 비밀번호 아님)
+                    "s": secrets.token_hex(16),
+                    "c": _now(),
+                },
+            ).scalar_one()
         for pid, rating, body, author in _SEED:
             conn.execute(
                 sa.text(
                     "INSERT INTO reviews(user_id, product_id, author, rating, body, created_at) "
-                    "VALUES (0,:p,:a,:r,:b,:c)"
+                    "VALUES (:u,:p,:a,:r,:b,:c)"
                 ),
-                {"p": pid, "a": author, "r": rating, "b": body, "c": _now()},
+                {"u": seed_user_id, "p": pid, "a": author, "r": rating, "b": body, "c": _now()},
             )
         conn.commit()

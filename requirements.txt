@@ -6,6 +6,9 @@ SQLAlchemy>=2.0,<3
 pydantic>=2.7,<3
 python-multipart>=0.0.9
 
+# 웹 배포(Vercel)에서 DATABASE_URL이 설정되면 Postgres(Neon)로 접속. 데스크톱 앱은 SQLite 그대로 사용.
+psycopg[binary]>=3.1,<4
+
 # 라벨 사진 판독
 #  - 비전 AI(권장, 한글 정확도 높음): anthropic + ANTHROPIC_API_KEY 환경변수
 #  - 내장 OCR(폴백): pytesseract + Tesseract 엔진(한글 언어팩)

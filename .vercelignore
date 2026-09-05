@@ -1,0 +1,7 @@
+.pytest_cache/
+node_modules/
+frontend/node_modules/
+shelter/node_modules/
+shelter/.next/
+.next/
+.git/

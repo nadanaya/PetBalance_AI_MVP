@@ -32,3 +32,5 @@ release/
 build/.pyinstaller/
 *.log
 .runtime/
+
+.env*
