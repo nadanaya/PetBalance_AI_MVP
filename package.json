@@ -1,0 +1,64 @@
+{
+  "name": "petbalance-ai",
+  "productName": "PetBalance AI",
+  "version": "0.2.0",
+  "private": true,
+  "description": "여러 제품을 하나의 식단으로 계산하는 성견 영양 의사결정 보조 데스크톱 앱",
+  "main": "desktop/main.js",
+  "author": "PetBalance AI",
+  "scripts": {
+    "postinstall": "cd frontend && npm install",
+    "setup": "npm install && node node_modules/electron/install.js",
+    "backend": "python -m backend --port 8756",
+    "frontend:dev": "cd frontend && npm run dev",
+    "frontend:build": "cd frontend && npm run build",
+    "dev": "concurrently -k -n api,ui -c blue,magenta \"npm:backend\" \"npm:frontend:dev\"",
+    "dev:app": "concurrently -k -n api,ui,app \"npm:backend\" \"npm:frontend:dev\" \"wait-on http-get://127.0.0.1:5173 && cross-env PB_VITE=1 electron .\"",
+    "start": "npm run frontend:build && electron .",
+    "backend:freeze": "pyinstaller --noconfirm --distpath dist --workpath build/.pyinstaller build/petbalance-backend.spec",
+    "dist": "npm run frontend:build && npm run backend:freeze && electron-builder"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1",
+    "cross-env": "^7.0.3",
+    "electron": "^31.4.0",
+    "electron-builder": "^24.13.3",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "ai.petbalance.desktop",
+    "productName": "PetBalance AI",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "desktop/**/*",
+      "!**/*.map"
+    ],
+    "extraResources": [
+      {
+        "from": "dist/petbalance-backend",
+        "to": "backend",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "target": ["nsis"],
+      "artifactName": "PetBalance-AI-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false
+    },
+    "linux": {
+      "target": ["AppImage"],
+      "category": "Utility"
+    },
+    "mac": {
+      "target": ["dmg"],
+      "category": "public.app-category.healthcare-fitness"
+    }
+  }
+}

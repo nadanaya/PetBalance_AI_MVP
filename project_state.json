@@ -1,0 +1,32 @@
+{
+  "project_name": "PetBalance AI",
+  "hackathon_theme": "반려동물 영양 안전과 정보 탐색 문제",
+  "problem_statement": "여러 제품을 급여하는 보호자는 하루 총 영양소와 중복 가능성을 알기 어렵다.",
+  "target_user": "사료 외 간식·영양제를 함께 급여하는 성견 보호자",
+  "mvp": ["검수 제품과 급여량 입력", "영양소 합산과 상태 판정", "제품별 기여도", "제품 제외 시뮬레이션"],
+  "out_of_scope": ["질병 진단과 처방", "약물 상호작용", "실시간 최저가", "OCR 자동 확정"],
+  "success_metrics": ["단위 변환 테스트 100%", "누락값 정보 부족 처리 100%", "모든 경고의 계산 근거 표시"],
+  "tech_stack": ["Python", "FastAPI", "Pandas", "SQLite", "React", "TypeScript", "Vite", "Electron"],
+  "data_sources": ["검수된 데모 제품", "교체 가능한 데모 기준표"],
+  "current_phase": "all_34_features_implemented_sidebar_app",
+  "assumptions": ["성견 단일 생애주기", "기준값은 실제 급여용이 아닌 기능 검증용"],
+  "decisions": ["판정은 규칙 엔진이 담당", "미표기 영양소를 0으로 간주하지 않음", "가격 추천보다 조합 분석 우선", "UI는 React SPA, 설치형은 Electron+PyInstaller sidecar", "Streamlit UI는 legacy/로 보존"],
+  "deliverables": ["backend/api.py", "backend/nutrition.py", "backend/label_ocr.py", "backend/database.py", "frontend/ (React SPA)", "desktop/main.js", "build/petbalance-backend.spec", "data/processed/products.csv", "data/processed/nutrient_standards.csv", "tests/ (42개)", "sql/schema.sql"],
+  "work_items": [
+    {"task":"src→backend 재구성 + FastAPI 확장","status":"done"},
+    {"task":"React 사이드바 앱 레이아웃 전면 개편 + 상태바","status":"done"},
+    {"task":"F-028 온라인 계정 인증 + 사용자별 데이터 분리","status":"done"},
+    {"task":"F-011 단위변환 / F-032 성분명 정규화 모듈+엔드포인트+UI","status":"done"},
+    {"task":"F-019 대체 제품 추천 (규칙 기반)","status":"done"},
+    {"task":"F-021 최저가 (PriceProvider 어댑터 + 데모 prices.csv)","status":"done"},
+    {"task":"F-023 제품 카탈로그 23종 / F-024·F-034 AAFCO 환산 기준표+출처","status":"done"},
+    {"task":"F-007 이미지 OCR 전처리 래퍼 (pytesseract 선택)","status":"done"},
+    {"task":"테스트 63개 통과 (features 21개 추가)","status":"done"},
+    {"task":"실제 기준표 수의영양학 검토","status":"blocked"},
+    {"task":"실제 가격 API 연동 (PriceProvider 구현체 교체)","status":"next"},
+    {"task":"실제 라벨 사진 세트로 OCR 정확도 측정","status":"next"},
+    {"task":"npm install(정식) 후 Electron 창/설치파일 빌드 검증, 앱 아이콘 제작","status":"next"}
+  ],
+  "blockers": ["실제 영양 기준표 미검증", "실제 가격 데이터 소스 미확보", "이 환경에서 Electron 바이너리 미다운로드로 GUI 실행 미검증"],
+  "next_action": "사용자 머신에서 `pip install -r requirements.txt && npm install && npm run dev` 로 Electron 창 확인, 이후 `npm run dist` 로 설치파일 빌드"
+}

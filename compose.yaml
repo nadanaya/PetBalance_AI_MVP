@@ -1,0 +1,19 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      PB_PUBLIC_SERVER: "1"
+      PB_DB: /app/storage/petbalance.db
+      PB_CORS_ORIGINS: ${PB_CORS_ORIGINS:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      VISION_MODEL: ${VISION_MODEL:-}
+    # Connect an HTTPS reverse proxy on this host to this loopback port.
+    ports:
+      - "127.0.0.1:8756:8756"
+    volumes:
+      - petbalance-data:/app/storage
+    init: true
+
+volumes:
+  petbalance-data:
