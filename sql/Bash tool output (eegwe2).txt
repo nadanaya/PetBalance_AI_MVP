@@ -1,0 +1,4 @@
+Exit code 128
+fatal: not a git repository (or any of the parent directories): .git
+---frontend---
+fatal: not a git repository (or any of the parent directories): .git
